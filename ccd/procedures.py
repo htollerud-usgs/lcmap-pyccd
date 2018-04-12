@@ -654,9 +654,6 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
             break
 
         # Increment end of model for next loop
-        if model_window.stop + peek_size >= period.shape[0]:
-            break
-
         model_window = slice(model_window.start, model_window.stop + 1)
 
     # This is triggered if the while loop is not ended via a break. It should not happen. This code can be removed later.
