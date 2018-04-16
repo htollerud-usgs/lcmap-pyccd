@@ -648,7 +648,9 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
             spectral_obs = observations[:, processing_mask]
             X = allTimeX[processing_mask,:]
 
-            if model_window.stop + peek_size >= period.shape[0]:
+            nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+                    minimumNumberOfCompareObservations, minimumDaysElapsedToTestForBreak, period, model_window.stop)
+            if not enoughObservationsRemaining:
                 break
 
             continue
