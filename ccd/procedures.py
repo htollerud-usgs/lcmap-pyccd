@@ -35,7 +35,7 @@ from ccd.math_utils import kelvin_to_celsius, adjusted_variogram, euclidean_norm
 
 from ccd.models.lasso import coefficient_matrix
 from ccd.interactWithSums import createSumArrays,incrementSums, \
-    subsetAndCenterSumMatrices,createXTX,incrementXTX
+    subsetAndCenterSumMatrices,ssrForModelUsingMatrixXTX
 from ccd.breakTest import breakTestIncludingModelError
 from ccd.statsCurrent import cutoffLookupTable
 
@@ -535,9 +535,9 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
 
     # For an estimate of the model error assuming temporal autocorrelation, only use a subset of
     #    the observations in the model to compute the model error correction
-    matrixXTXForAutocorrelation = createXTX(coef_max)
-    previousIndexXTXForAutocorrelation = model_window.start
-    nObservationsInAutocorrelateArray = 0
+    matrixXTXForAutocorrelation, vectorsXTYForAutocorrelation, sumYSquaredForAutocorrelation = createSumArrays(nBands, coef_max)
+    previousIndexForAutocorrelation = model_window.start
+    nObservationsInAutocorrelateMatrices = 0
 
     # Initial subset of the data
     period = dates[processing_mask]
@@ -576,10 +576,11 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
         for indexToAdd in range(nextIndexForSumArrays,model_window.stop):
             incrementSums(indexToAdd,X,spectral_obs,matrixXTX,vectorsXTY,sumYSquared)
             nObservationsInSumArrays += 1
-            if period[indexToAdd]-period[previousIndexXTXForAutocorrelation] > autocorrelationDaysForModel:
-                incrementXTX(indexToAdd,X,spectral_obs,matrixXTXForAutocorrelation)
-                nObservationsInAutocorrelateArray += 1
-                previousIndexXTXForAutocorrelation = indexToAdd
+            if period[indexToAdd]-period[previousIndexForAutocorrelation] > autocorrelationDaysForModel:
+                incrementSums(indexToAdd,X,spectral_obs,matrixXTXForAutocorrelation,vectorsXTYForAutocorrelation,
+                        sumYSquaredForAutocorrelation)
+                nObservationsInAutocorrelateMatrices += 1
+                previousIndexForAutocorrelation = indexToAdd
         nextIndexForSumArrays = model_window.stop
 
         # Fit new models on first iteration, if there are less than 24 observations in model_window,
@@ -606,7 +607,19 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
                     meanY=sumYsubset[band]/nObservationsInSumArrays, normX=np.ones(nCoefficientsInModelFit-1))
                     for band in range(nBands)]
 
-            rmseOfCurrentModels = [models[band].rmse for band in detection_bands]
+            matrixXTXsubsetA,vectorsXTYsubsetA,sumXsubsetA,sumYsubsetA,sumYSquaredsubsetA = subsetAndCenterSumMatrices(
+                    nCoefficientsInModelFit, matrixXTXForAutocorrelation, vectorsXTYForAutocorrelation,
+                    sumYSquaredForAutocorrelation, nObservationsInAutocorrelateMatrices)
+            mseUsingAutocorrelation = np.zeros((nBands))
+            for band in range(nBands):
+                modelBetas = np.array([float(c) for c in models[band].fitted_model.coef_])
+                modelSSR = ssrForModelUsingMatrixXTX(modelBetas,matrixXTXsubsetA,vectorsXTYsubsetA[band,:],sumYSquaredsubsetA[band])
+                # This definitely shouldn't happen often: see if it happens ever
+                if nObservationsInAutocorrelateMatrices > nCoefficientsInModelFit:
+                    mseUsingAutocorrelation[band] = modelSSR/(nObservationsInAutocorrelateMatrices-nCoefficientsInModelFit)
+                else:
+                    raise Exception('lookforward: it is happening- no degrees of freedom')
+            mseUsingAutocorrelation = mseUsingAutocorrelation[detection_bands]
 
         # If there are no observations remaining beyond model_window, just return (this can happen on the first iteration)
         if model_window.stop == period.shape[0]:
@@ -625,7 +638,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
         # Test for a break in the model
         inverseMatrixXTX = np.linalg.inv(matrixXTXForAutocorrelation[0:nCoefficientsInModelFit,0:nCoefficientsInModelFit])
         breakFound,potentialBreakMagnitudes = breakTestIncludingModelError(compareObservationResiduals[detection_bands,:],
-                X[peek_window,0:nCoefficientsInModelFit], np.power(rmseOfCurrentModels,2), nObservationsInAutocorrelateArray,
+                X[peek_window,0:nCoefficientsInModelFit], mseUsingAutocorrelation, nObservationsInAutocorrelateMatrices,
                 cutoffLookupTable, desiredTotalPValue, inverseMatrixXTX, peek_size)
 
         if breakFound:
