@@ -614,11 +614,11 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
             for band in range(nBands):
                 modelBetas = np.array([float(c) for c in models[band].fitted_model.coef_])
                 modelSSR = ssrForModelUsingMatrixXTX(modelBetas,matrixXTXsubsetA,vectorsXTYsubsetA[band,:],sumYSquaredsubsetA[band])
-                # This definitely shouldn't happen often: see if it happens ever
+                # Set the minimum degrees of freedom to 1
                 if nObservationsInAutocorrelateMatrices > nCoefficientsInModelFit:
                     mseUsingAutocorrelation[band] = modelSSR/(nObservationsInAutocorrelateMatrices-nCoefficientsInModelFit)
                 else:
-                    raise Exception('lookforward: it is happening- no degrees of freedom')
+                    mseUsingAutocorrelation[band] = modelSSR
             mseUsingAutocorrelation = mseUsingAutocorrelation[detection_bands]
 
         # If there are no observations remaining beyond model_window, just return (this can happen on the first iteration)
