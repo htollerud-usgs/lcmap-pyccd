@@ -28,7 +28,8 @@ import numpy as np
 from ccd import qa
 from ccd.change import enough_samples, enough_time,\
     update_processing_mask, stable, determine_num_coefs, calc_residuals, \
-    find_closest_doy, change_magnitude, detect_change, detect_outlier
+    find_closest_doy, change_magnitude, detect_change, detect_outlier, \
+    findNumberOfCompareObservations
 from ccd.models import results_to_changemodel, tmask
 from ccd.math_utils import kelvin_to_celsius, adjusted_variogram, euclidean_norm
 
@@ -501,10 +502,13 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
     avg_days_yr = proc_params.AVG_DAYS_YR
     fit_max_iter = proc_params.LASSO_MAX_ITER
 
+    # Hardcode break parameters here during testing/evaluation of different break tests
+    desiredTotalPValue = 1e-12
+    minimumDaysElapsedToTestForBreak = 90
+    minimumNumberOfCompareObservations = peek_size
 
-    desiredTotalPValue = 1e-12 # Hardcode here for testing/evaluation
 
-
+   
     # Step 4: lookforward.
     # The second step is to update a model until observations that do not
     # fit the model are found.
@@ -544,12 +548,17 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
     # Read in lookup table containing cutoff values for use in the break test
 #    cutoffLookupTable = readCutoffsFromFile()
 
-    # stop is always exclusive
+    nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+            minimumNumberOfCompareObservations, minimumDaysElapsedToTestForBreak, period, model_window.stop)
+
+    # Main loop: add one observation to the model after each trip through the while loop
     while model_window.stop <= period.shape[0]:
+
+        # Set the comparison window based on the number of comparison observations
+        peek_window = slice(model_window.stop, model_window.stop + nCompareObservations)
+
         num_coefs = determine_num_coefs(period[model_window], coef_min,
                                         coef_mid, coef_max, num_obs_fact)
-
-        peek_window = slice(model_window.stop, model_window.stop + peek_size)
 
         # Used for comparison against fit_span
         model_span = period[model_window.stop - 1] - period[model_window.start]
@@ -588,7 +597,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
 
             rmseOfCurrentModels = [models[band].rmse for band in detection_bands]
 
-        # Hypothetically, this should only happen on the first pass through the loop
+        # If there are no observations remaining beyond model_window, just return (this can happen on the first iteration)
         if model_window.stop == period.shape[0]:
             compareObservationResiduals = np.zeros((nBands,2))
             compareObservationResiduals[:,:] = np.nan
@@ -634,14 +643,20 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
             spectral_obs = observations[:, processing_mask]
             X = allTimeX[processing_mask,:]
 
-            if model_window.stop + peek_size > period.shape[0]:
+            nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+                    minimumNumberOfCompareObservations, minimumDaysElapsedToTestForBreak, period, model_window.stop)
+            if not enoughObservationsRemaining:
                 break
 
             continue
 
-        if model_window.stop + peek_size >= period.shape[0]:
+        # Check if there are enough observations remaining to go through another loop
+        nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+                minimumNumberOfCompareObservations, minimumDaysElapsedToTestForBreak, period, model_window.stop+1)
+        if not enoughObservationsRemaining:
             break
 
+        # Increment end of model for next loop
         model_window = slice(model_window.start, model_window.stop + 1)
 
     # This is triggered if the while loop is not ended via a break. It should not happen. This code can be removed later.
