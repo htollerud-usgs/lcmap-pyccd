@@ -299,7 +299,7 @@ def findCompareObservations(autocorrelationDaysForCompare, numberOfCompareObserv
     nObservationsInCompareRange = 0
     nObservationsForComparison = 1
     currentStartIndex = firstCompareIndex
-    compareObservations = np.zeros(numberOfCompareObservations)
+    compareObservations = np.zeros(numberOfCompareObservations, dtype=np.integer)
     compareObservations[0] = currentStartIndex
     while firstCompareIndex+nObservationsInCompareRange < period.shape[0]:
         # Increment number of observations included for comparison
