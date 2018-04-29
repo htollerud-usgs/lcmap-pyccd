@@ -29,7 +29,7 @@ from ccd import qa
 from ccd.change import enough_samples, enough_time,\
     update_processing_mask, stable, determine_num_coefs, calc_residuals, \
     find_closest_doy, change_magnitude, detect_change, detect_outlier, \
-    findNumberOfCompareObservations
+    findCompareObservations
 from ccd.models import results_to_changemodel, tmask
 from ccd.math_utils import kelvin_to_celsius, adjusted_variogram, euclidean_norm
 
@@ -523,7 +523,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
     # Initialized for a check at the first iteration.
     models = None
 
-    # Simple value to determine if change has occured or not. Change may not
+    # Simple value to determine if change has occurred or not. Change may not
     # have occurred if we reach the end of the time series.
     change = 0
 
@@ -555,14 +555,14 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
     # Read in lookup table containing cutoff values for use in the break test
 #    cutoffLookupTable = readCutoffsFromFile()
 
-    nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+    compareObservations, enoughObservationsRemaining = findCompareObservations(
             autocorrelationDaysForCompare, peek_size, period, model_window.stop)
 
     # Main loop: add one observation to the model after each trip through the while loop
     while model_window.stop <= period.shape[0]:
 
-        # Set the comparison window based on the number of comparison observations
-        peek_window = slice(model_window.stop, model_window.stop + nCompareObservations)
+        # Hopefully, currently only making use of peek_window.start, which should be the same as compareObservations[0]
+        peek_window = slice(model_window.stop, model_window.stop + 2)
 
         num_coefs = determine_num_coefs(period[model_window], coef_min,
                                         coef_mid, coef_max, num_obs_fact)
@@ -570,7 +570,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
         # Used for comparison against fit_span
         model_span = period[model_window.stop - 1] - period[model_window.start]
 
-        log.debug('Detecting change for %s', peek_window)
+#        log.debug('Detecting change for %s', peek_window)
 
         # Increment sum matrices up to the current index
         for indexToAdd in range(nextIndexForSumArrays,model_window.stop):
@@ -618,14 +618,14 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
 
         # Calculate residuals for the next observations after the end of the current model
         compareObservationResiduals = np.array([
-                np.abs(spectral_obs[band, peek_window] -
-                models[band].fitted_model.predict(X[peek_window, 1:nCoefficientsInModelFit]))
+                np.abs(spectral_obs[band, compareObservations] -
+                models[band].fitted_model.predict(X[compareObservations, 1:nCoefficientsInModelFit]))
                 for band in range(nBands)])
 
         # Test for a break in the model
         inverseMatrixXTX = np.linalg.inv(matrixXTXForAutocorrelation[0:nCoefficientsInModelFit,0:nCoefficientsInModelFit])
         breakFound,potentialBreakMagnitudes = breakTestIncludingModelError(compareObservationResiduals[detection_bands,:],
-                X[peek_window,0:nCoefficientsInModelFit], np.power(rmseOfCurrentModels,2), nObservationsInAutocorrelateArray,
+                X[compareObservations,0:nCoefficientsInModelFit], np.power(rmseOfCurrentModels,2), nObservationsInSumArrays,
                 cutoffLookupTable, desiredTotalPValue, inverseMatrixXTX, peek_size)
 
         if breakFound:
@@ -654,7 +654,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
             spectral_obs = observations[:, processing_mask]
             X = allTimeX[processing_mask,:]
 
-            nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+            compareObservations, enoughObservationsRemaining = findCompareObservations(
                     autocorrelationDaysForCompare, peek_size, period, model_window.stop)
             if not enoughObservationsRemaining:
                 break
@@ -662,7 +662,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
             continue
 
         # Check if there are enough observations remaining to go through another loop
-        nCompareObservations, enoughObservationsRemaining = findNumberOfCompareObservations(
+        compareObservations, enoughObservationsRemaining = findCompareObservations(
                 autocorrelationDaysForCompare, peek_size, period, model_window.stop+1)
         if not enoughObservationsRemaining:
             break
