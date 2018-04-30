@@ -5,17 +5,6 @@
 
 import numpy as np
 
-import os.path
-
-
-# These values still need to be updated at some point, but they should be roughly correct
-# Also need documentation if this version of PyCCD is used
-# Also would be good to add p-value labels to the file
-#def readCutoffsFromFile():
-#    cutoffs = np.loadtxt(os.path.join(os.path.dirname(__file__), 'StatsCurrent.txt'))
-#    return cutoffs
-
-
 
 def breakTestIncludingModelError(compareObservationResiduals,regressorsForCompareObservations,
         msrOfCurrentModels,nObservationsInModel,cutoffLookupTable,pValueForBreakTest,inverseMatrixXTX,nCompareForP):
@@ -46,7 +35,15 @@ def breakTestIncludingModelError(compareObservationResiduals,regressorsForCompar
     nDegreesOfFreedom = max(nObservationsInModel-nCoefficients,1)
     cutoff = cutoffLookupTable[501-int(individualPValue*1000),min(nDegreesOfFreedom,cutoffLookupTable.shape[1])-1]
 
-    if min(magnitudes) > cutoff:
+    if nCompareObservations == nCompareForP:
+        compareValue = min(magnitudes)
+    else:
+        sort = np.argsort(magnitudes)
+        secondIndex = np.floor_divide(nCompareObservations,nCompareForP)
+        mod = np.mod(nCompareObservations,nCompareForP)
+        compareValue = (magnitudes[sort[secondIndex-1]]*(nCompareForP-mod) + magnitudes[sort[secondIndex]]*mod)/nCompareForP
+
+    if compareValue > cutoff:
         return True, magnitudes
     else:
         return False, magnitudes
