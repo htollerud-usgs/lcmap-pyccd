@@ -318,8 +318,10 @@ def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
 
         # Step 4: lookforward
         log.debug('Extend change model')
+        smallVariogram = np.copy(variogram)
+        smallVariogram[:] = 1e-16
         lf = lookforward(dates, observations, model_window, fitter_fn,
-                         processing_mask, variogram, proc_params)
+                         processing_mask, smallVariogram, proc_params)
 
         result, processing_mask, model_window = lf
         results.append(result)
@@ -555,7 +557,7 @@ def lookforward(dates, observations, model_window, fitter_fn, processing_mask,
 
         # Fit new models on first iteration, if there are less than 24 observations in model_window,
         # or if far enough past the current fit_span
-        if not models or model_window.stop - model_window.start < 24 or model_span >= 1.33 * fit_span:
+        if not models or model_window.stop - model_window.start < 24 or model_span >= 0.99 * fit_span:
             fit_span = period[model_window.stop - 1] - period[
                 model_window.start]
 
