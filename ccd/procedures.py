@@ -31,7 +31,7 @@ from ccd.change import enough_samples, enough_time,\
     find_closest_doy, change_magnitude, detect_change, detect_outlier, \
     adjustpeek, adjustchgthresh
 from ccd.models import results_to_changemodel, tmask
-from ccd.math_utils import kelvin_to_celsius, adjusted_variogram, euclidean_norm
+from ccd.math_utils import kelvin_to_celsius, adjusted_variogram, euclidean_norm, mask_duplicate_values
 
 
 log = logging.getLogger(__name__)
@@ -62,7 +62,8 @@ def fit_procedure(quality, proc_params):
         if qa.enough_snow(quality, clear, water, snow, snow_thresh):
             func = permanent_snow_procedure
         else:
-            func = insufficient_clear_procedure
+            func = standard_procedure
+#            func = insufficient_clear_procedure
     else:
         func = standard_procedure
 
@@ -187,7 +188,7 @@ def insufficient_clear_procedure(dates, observations, fitter_fn, quality,
     return (result,), processing_mask
 
 
-def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
+def standard_procedure(dates, observations, fitter_fn, quality, proc_params, packedQAs):
     """
     Runs the core change detection algorithm.
 
@@ -228,6 +229,13 @@ def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
     thermal_idx = proc_params.THERMAL_IDX
     curve_qa = proc_params.CURVE_QA
 
+    qaValueForClear = proc_params.QA_CLEAR
+    qaValueForWater = proc_params.QA_WATER
+    qaValueForFill = proc_params.QA_FILL
+    qaValueForShadow = proc_params.QA_SHADOW
+    qaValueForSnow = proc_params.QA_SNOW
+    clear_thresh = proc_params.CLEAR_PCT_THRESHOLD
+
     log.debug('Build change models - dates: %s, obs: %s, '
               'meow_size: %s, peek_size: %s',
               dates.shape[0], observations.shape, meow_size, defpeek)
@@ -250,15 +258,26 @@ def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
     # The masked module from numpy does not seem to really add anything of
     # benefit to what we need to do, plus scikit may still be incompatible
     # with them.
-    processing_mask = qa.standard_procedure_filter(observations, quality,
-                                                   dates, proc_params)
+#    processing_mask = qa.standard_procedure_filter(observations, quality,
+#                                                   dates, proc_params)
+    basic_processing_mask = ((~(quality==qaValueForFill)) & qa.filter_thermal_celsius(observations[thermal_idx]) &
+            qa.filter_saturated(observations))
+    basic_processing_mask[basic_processing_mask] = mask_duplicate_values(dates[basic_processing_mask])
+    including_cloud_processing_mask = basic_processing_mask & ~( qa.checkbitArray(packedQAs, qaValueForShadow) |
+            qa.checkbitArray(packedQAs, qaValueForSnow) )
+    processing_mask = np.copy(including_cloud_processing_mask)
+    cloud_confidence_processing_mask = basic_processing_mask & ( qa.checkbitArray(packedQAs, qaValueForClear) |
+            qa.checkbitArray(packedQAs, qaValueForWater) ) & ~( qa.checkbitArray(packedQAs, proc_params.QA_CLOUD_CONFIDENCE_1) &
+            qa.checkbitArray(packedQAs, proc_params.QA_CLOUD_CONFIDENCE_2) )
+    default_processing_mask = basic_processing_mask & ((quality==qaValueForClear) | (quality==qaValueForWater))
+#    raise Exception('testing: '+str(sum(basic_processing_mask))+'  '+str(sum(including_cloud_processing_mask))+'  '+str(sum(cloud_confidence_processing_mask))+'  '+str(sum(default_processing_mask)))
 
-    obs_count = np.sum(processing_mask)
+    obs_count = np.sum(including_cloud_processing_mask)
 
     log.debug('Processing mask initial count: %s', obs_count)
 
     # TODO Temporary setup on this to just get it going
-    peek_size = adjustpeek(dates[processing_mask], defpeek)
+    peek_size = defpeek#adjustpeek(dates[including_cloud_processing_mask], defpeek)
     proc_params.PEEK_SIZE = peek_size
     proc_params.CHANGE_THRESHOLD = adjustchgthresh(peek_size, defpeek,
                                                    proc_params.CHANGE_THRESHOLD)
@@ -271,7 +290,7 @@ def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
     results = []
 
     if obs_count <= meow_size:
-        return results, processing_mask
+        return results, including_cloud_processing_mask
 
     # Initialize the window which is used for building the models
     model_window = slice(0, meow_size)
@@ -283,8 +302,8 @@ def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
 
     # Calculate the variogram/madogram that will be used in subsequent
     # processing steps. See algorithm documentation for further information.
-    variogram = adjusted_variogram(dates[processing_mask],
-                                   observations[:, processing_mask])
+    variogram = adjusted_variogram(dates[default_processing_mask],
+                                   observations[:, default_processing_mask])
     log.debug('Variogram values: %s', variogram)
 
     # Only build models as long as sufficient data exists.
@@ -293,6 +312,23 @@ def standard_procedure(dates, observations, fitter_fn, quality, proc_params):
         log.debug('Initialize for change model #: %s', len(results) + 1)
         if len(results) > 0:
             start = False
+
+        # Set the processing mask
+        if start is True:
+            startOverwriteIndex = 0
+        else:
+            startOverwriteIndex = (np.arange(dates.shape[0])[processing_mask])[previous_end-1]+1
+        if (np.sum(default_processing_mask[startOverwriteIndex:])/np.sum(basic_processing_mask[startOverwriteIndex:])) > clear_thresh:
+            processing_mask[startOverwriteIndex:] = default_processing_mask[startOverwriteIndex:]
+#            processing_mask[startOverwriteIndex:] = default_processing_mask[startOverwriteIndex:]
+        elif (np.sum(cloud_confidence_processing_mask[startOverwriteIndex:])/np.sum(basic_processing_mask[startOverwriteIndex:])) > clear_thresh:
+            processing_mask[startOverwriteIndex:] = cloud_confidence_processing_mask[startOverwriteIndex:]
+        elif (np.sum(including_cloud_processing_mask[startOverwriteIndex:])/np.sum(basic_processing_mask[startOverwriteIndex:])) > clear_thresh:
+            processing_mask[startOverwriteIndex:] = including_cloud_processing_mask[startOverwriteIndex:]
+        else:
+            processing_mask[startOverwriteIndex:] = basic_processing_mask[startOverwriteIndex:]
+        if model_window.stop > dates[processing_mask].shape[0] - meow_size:
+            break
 
         # Make things a little more readable by breaking this apart
         # catch return -> break apart into components
