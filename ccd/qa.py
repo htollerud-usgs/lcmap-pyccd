@@ -19,6 +19,8 @@ def checkbit(packedint, offset):
     bit = 1 << offset
 
     return (packedint & bit) > 0
+def checkbitArray(quality, offset):
+    return np.array([checkbit(q, offset) for q in quality])
 
 
 def qabitval(packedint, proc_params):
