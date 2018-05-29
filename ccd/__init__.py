@@ -167,14 +167,17 @@ def detect(dates, blues, greens, reds, nirs,
     fitter_fn = attr_from_str(proc_params.FITTER_FN)
 
     if proc_params.QA_BITPACKED is True:
+        packedQAs = np.copy(qas)
         qas = qa.unpackqa(qas, proc_params)
+    else:
+        raise Exception('detect: unpacked QAs need to be coded if desired')
 
     probs = qa.quality_probabilities(qas, proc_params)
 
     # Determine which procedure to use for the detection
     procedure = __determine_fit_procedure(qas, proc_params)
 
-    results = procedure(dates, spectra, fitter_fn, qas, proc_params)
+    results = procedure(dates, spectra, fitter_fn, qas, proc_params, packedQAs)
     log.debug('Total time for algorithm: %s', time.time() - t1)
 
     # call detect and return results as the detections namedtuple
