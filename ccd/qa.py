@@ -26,7 +26,7 @@ def qabitval(packedint, proc_params):
     Institute a hierarchy of qa values that may be flagged in the bitpacked
     value.
     
-    fill > cloud > shadow > snow > water > clear
+    fill > high confidence cloud > shadow > snow > water > clear
     
     Args:
         packedint: int value to bit check
@@ -37,7 +37,9 @@ def qabitval(packedint, proc_params):
     """
     if checkbit(packedint, proc_params.QA_FILL):
         return proc_params.QA_FILL
-    elif checkbit(packedint, proc_params.QA_CLOUD):
+#    elif checkbit(packedint, proc_params.QA_CLOUD):
+    elif (checkbit(packedint, proc_params.QA_CLOUD_CONFIDENCE_1) &
+            checkbit(packedint, proc_params.QA_CLOUD_CONFIDENCE_2) ):
         return proc_params.QA_CLOUD
     elif checkbit(packedint, proc_params.QA_SHADOW):
         return proc_params.QA_SHADOW
