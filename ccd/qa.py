@@ -55,6 +55,8 @@ def qabitval(packedint, proc_params):
         return proc_params.QA_CLEAR
     elif checkbit(packedint, proc_params.QA_OCCLUSION):
         return proc_params.QA_CLEAR
+    elif checkbit(packedint, proc_params.QA_CLOUD):
+        return proc_params.QA_CLEAR
 
     else:
         raise ValueError('Unsupported bitpacked QA value {}'.format(packedint))
