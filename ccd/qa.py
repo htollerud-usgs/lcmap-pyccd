@@ -55,6 +55,7 @@ def qabitval(packedint, proc_params):
         return proc_params.QA_CLEAR
     elif checkbit(packedint, proc_params.QA_OCCLUSION):
         return proc_params.QA_CLEAR
+    # Low or medium confidence clouds
     elif checkbit(packedint, proc_params.QA_CLOUD):
         return proc_params.QA_CLEAR
 
